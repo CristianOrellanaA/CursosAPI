@@ -1,46 +1,48 @@
 name: maquinaJava
 on:
-    push:
-        branches:
-            - main
+  push:
+    branches: [main]
+
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        steps:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4  # Updated to official action
 
-            - name: Comprobar codigo repositorio
-              uses: myci-actions/checkout@8
+      - name: Create directory on server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.IP_SERVER }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            mkdir -p /home/ubuntu/fs1001
+            chmod 755 /home/ubuntu/fs1001  # Ensure proper permissions
 
-            - name: Crear carpeta en el servidor AWS 
-              uses: appleboy/ssh-action@v1
-              with:
-                    host: ${{ secrets.IP_SERVER }}
-                    username: ${{ secrets.USERNAME }}
-                    key: ${{ secrets.PRIVATE_KEY }}
-                    port: ${{ secrets.PORT }}
-                    script: |
-                            mkdir -p /home/ubuntu/fs1001
+      - name: Sync files with server
+        uses: burnett01/rsync-deployments@7.0.2
+        with:
+          switches: "-avzh --delete --exclude=.git/"  # Added exclusions
+          path: "./"
+          remote_host: ${{ secrets.IP_SERVER }}
+          remote_user: ${{ secrets.USERNAME }}
+          remote_path: "/home/ubuntu/fs1001/"
+          remote_key: ${{ secrets.PRIVATE_KEY }}
+          remote_port: ${{ secrets.PORT }}
 
-            - name: Sincronizar archivos con el servidor
-              uses: burnett01/rsync-deployments@7.0.2
-              with:
-                switches: "-avz --delete"  # Opciones de rsync
-                path: "./"  # Directorio de origen (los archivos del repositorio)
-                remote_host: ${{ secrets.IP_SERVER }}  # Dirección IP del servidor
-                remote_user: ${{ secrets.USERNAME }}  # Usuario SSH en el servidor
-                remote_path: "/home/ubuntu/fs1001/"  # Ruta de destino en el servidor
-                remote_key: ${{ secrets.PRIVATE_KEY }}  # Clave SSH para autenticar
-                remote_port: ${{ secrets.PORT }}  # Puerto SSH (si es distinto del predeterminado 22)
-
-
-            - name: Levantar docker-compose 
-              uses: appleboy/ssh-action@v1
-              with:
-                host: ${{ secrets.IP_SERVER }}
-                username: ${{ secrets.USERNAME }}
-                key: ${{ secrets.PRIVATE_KEY }}
-                port: ${{ secrets.PORT }}
-                script: |
-                        cd /home/ubuntu/fs1001/
-                        sudo docker compose down
-                        sudo docker compose up -d --build
+      - name: Deploy Docker containers
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.IP_SERVER }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            cd /home/ubuntu/fs1001
+            # Graceful shutdown and rebuild
+            sudo docker compose down --remove-orphans --timeout 120
+            sudo docker compose up -d --build --force-recreate
+            # Clean unused resources
+            sudo docker system prune -f
