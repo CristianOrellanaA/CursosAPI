@@ -6,4 +6,4 @@ services:
     ports:
       - "8082:8082"
     command: ["java","-jar","app.jar"]
-
+ 
